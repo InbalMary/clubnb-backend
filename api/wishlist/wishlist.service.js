@@ -35,6 +35,8 @@ async function query(filterBy = { userId: '' }) {
                             price: 1,
                             imgUrls: 1,
                             summary: 1,
+                            beds: 1,
+                            'host.rating': 1,
                         }).toArray()
                 } else {
                     wl.stays = []
@@ -76,6 +78,8 @@ async function getById(wishlistId) {
                     price: 1,
                     imgUrls: 1,
                     summary: 1,
+                    beds: 1,
+                    'host.rating': 1,
                 })
                 .toArray()
         }
