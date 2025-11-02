@@ -154,7 +154,7 @@ async function addWishlistToUser(userId, wishlistId) {
         const collection = await dbService.getCollection('user')
         await collection.updateOne(
             { _id: ObjectId.createFromHexString(userId) },
-            { $push: { wishlists: wishlistId } }
+            { $addToSet: { wishlists: wishlistId } }
         )
         logger.debug(`Wishlist ${wishlistId} added to user ${userId}`)
     } catch (err) {
