@@ -17,17 +17,34 @@ export const wishlistService = {
 async function query(filterBy = { userId: '' }) {
     try {
         const criteria = _buildCriteria(filterBy)
+        const wishlistCollection = await dbService.getCollection('wishlist')
+        const stayCollection = await dbService.getCollection('stay')
 
-        const collection = await dbService.getCollection('wishlist')
-        const wishlists = await collection.find(criteria).toArray()
+        const wishlists = await wishlistCollection.find(criteria).toArray()
 
-        // Convert ObjectIds to strings for client
-        wishlists.forEach(wishlist => {
-            if (wishlist.byUser?._id) {
-                wishlist.byUser._id = wishlist.byUser._id.toString()
-            }
-        })
+        await Promise.all(
+            wishlists.map(async (wl) => {
+                if (wl.stays && wl.stays.length > 0) {
+                    const stayIds = wl.stays.map(stay => new ObjectId(stay._id || stay))
 
+                    wl.stays = await stayCollection
+                        .find({ _id: { $in: stayIds } })
+                        .project({
+                            name: 1,
+                            loc: 1,
+                            price: 1,
+                            imgUrls: 1,
+                            summary: 1,
+                        }).toArray()
+                } else {
+                    wl.stays = []
+                }
+                if (wl.byUser?._id) {
+                    wl.byUser._id = wl.byUser._id.toString()
+                }
+            })
+        )
+        console.log('Fetched wishlists from DB:', JSON.stringify(wishlists, null, 2))
         return wishlists
     } catch (err) {
         logger.error('cannot find wishlists', err)
@@ -39,11 +56,29 @@ async function getById(wishlistId) {
     try {
         const criteria = { _id: ObjectId.createFromHexString(wishlistId) }
 
-        const collection = await dbService.getCollection('wishlist')
-        const wishlist = await collection.findOne(criteria)
+        const wishlistCollection = await dbService.getCollection('wishlist')
+        const stayCollection = await dbService.getCollection('stay')
 
+        const wishlist = await wishlistCollection.findOne(criteria)
         if (!wishlist) throw `Wishlist ${wishlistId} not found`
 
+        if (wishlist.stays?.length) {
+            const stayIds = wishlist.stays.map(id =>
+                typeof id === 'string'
+                    ? ObjectId.createFromHexString(id)
+                    : id
+            )
+            wishlist.stays = await stayCollection
+                .find({ _id: { $in: stayIds } })
+                .project({
+                    name: 1,
+                    loc: 1,
+                    price: 1,
+                    imgUrls: 1,
+                    summary: 1,
+                })
+                .toArray()
+        }
         // Convert ObjectIds to strings for client
         if (wishlist.byUser?._id) {
             wishlist.byUser._id = wishlist.byUser._id.toString()
@@ -56,6 +91,7 @@ async function getById(wishlistId) {
         throw err
     }
 }
+
 
 async function remove(wishlistId) {
     const { loggedinUser } = asyncLocalStorage.getStore()
@@ -273,3 +309,5 @@ function _buildCriteria(filterBy) {
 
     return criteria
 }
+
+
