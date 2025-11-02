@@ -60,29 +60,34 @@ async function query(filterBy = { txt: '', minPrice: 0 }) {
         const stays = await stayCursor.toArray()
 
         // Map stays like in local service
-        const mappedStays = stays.map(stay => ({
-            _id: stay._id,
-            name: stay.name,
-            type: stay.type,
-            imgUrls: stay.imgUrls,
-            price: stay.price,
-            summary: stay.summary,
-            capacity: stay.capacity || stay.guests || 0,
-            bathrooms: stay.bathrooms,
-            bedrooms: stay.bedrooms,
-            beds: stay.beds,
-            roomType: stay.roomType,
-            availableFrom: stay.availableFrom,
-            availableUntil: stay.availableUntil,
-            host: stay.host,
-            loc: stay.loc,
-            reviews: stay.reviews || [],
-            numReviews: stay.host?.numReviews || 0,
-            likedByUsers: stay.likedByUsers || [],
-            freeCancellation: Math.random() > 0.5,
-            rating: stay.host?.rating ? +stay.host.rating : null,
-            suggestedRange: _getSuggestedStayRange(stay)
-        }))
+        const mappedStays = stays.map(stay => {
+            const stayCapacity = stay.capacity || stay.guests || 0
+            
+            return {
+                _id: stay._id,
+                name: stay.name,
+                type: stay.type,
+                imgUrls: stay.imgUrls,
+                price: stay.price,
+                summary: stay.summary,
+                capacity: stayCapacity, 
+                guests: stayCapacity,
+                bathrooms: stay.bathrooms,
+                bedrooms: stay.bedrooms,
+                beds: stay.beds,
+                roomType: stay.roomType,
+                availableFrom: stay.availableFrom,
+                availableUntil: stay.availableUntil,
+                host: stay.host,
+                loc: stay.loc,
+                reviews: stay.reviews || [],
+                numReviews: stay.host?.numReviews || 0,
+                likedByUsers: stay.likedByUsers || [],
+                freeCancellation: Math.random() > 0.5,
+                rating: stay.host?.rating ? +stay.host.rating : null,
+                suggestedRange: _getSuggestedStayRange(stay)
+            }
+        })
 
         return mappedStays
     } catch (err) {
@@ -211,16 +216,18 @@ async function removeStayReview(stayId, reviewId) {
 
 function _buildCriteria(filterBy) {
     const criteria = {}
+    const orConditions = []
 
+    // Text search with $or
     if (filterBy.txt) {
         const regex = new RegExp(filterBy.txt, 'i')
-        criteria.$or = [
+        orConditions.push(
             { name: regex },
             { summary: regex },
             { 'loc.city': regex },
             { 'loc.country': regex },
             { 'loc.address': regex }
-        ]
+        )
     }
 
     if (filterBy.minPrice) {
@@ -236,8 +243,27 @@ function _buildCriteria(filterBy) {
     }
 
     if (filterBy.guests) {
-    criteria.guests = { $gte: +filterBy.guests }
-}
+        const guestCondition = {
+            $or: [
+                { capacity: { $gte: +filterBy.guests } },
+                { guests: { $gte: +filterBy.guests } }
+            ]
+        }
+        
+        // If we already have $or conditions (from txt search), use $and
+        if (orConditions.length > 0) {
+            criteria.$and = [
+                { $or: orConditions },
+                guestCondition
+            ]
+        } else {
+            // Otherwise just add the guest $or directly
+            criteria.$or = guestCondition.$or
+        }
+    } else if (orConditions.length > 0) {
+        // Only text search $or
+        criteria.$or = orConditions
+    }
 
     return criteria
 }
