@@ -46,7 +46,7 @@ async function query(filterBy = { userId: '' }) {
                 }
             })
         )
-        console.log('Fetched wishlists from DB:', JSON.stringify(wishlists, null, 2))
+        // console.log('Fetched wishlists from DB:', JSON.stringify(wishlists, null, 2))
         return wishlists
     } catch (err) {
         logger.error('cannot find wishlists', err)

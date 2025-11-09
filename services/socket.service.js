@@ -10,10 +10,12 @@ export function setupSocketAPI(http) {
         }
     })
     gIo.on('connection', socket => {
-        logger.info(`New connected socket [id: ${socket.id}]`)
+        logger.info(`New connected socket [id: ${socket.id}]`)        
         socket.on('disconnect', socket => {
             logger.info(`Socket disconnected [id: ${socket.id}]`)
         })
+        
+        // CHAT TOPIC
         socket.on('chat-set-topic', topic => {
             if (socket.myTopic === topic) return
             if (socket.myTopic) {
@@ -23,6 +25,7 @@ export function setupSocketAPI(http) {
             socket.join(topic)
             socket.myTopic = topic
         })
+     
         socket.on('chat-send-msg', msg => {
             logger.info(`New chat msg from socket [id: ${socket.id}], emitting to topic ${socket.myTopic}`)
             // emits to all sockets:
@@ -30,18 +33,60 @@ export function setupSocketAPI(http) {
             // emits only to sockets in the same room
             gIo.to(socket.myTopic).emit('chat-add-msg', msg)
         })
+        
+        // STAY CHAT
+        socket.on('stay-set-topic', ({ stayId, userName }) => {
+            const room = `stay:${stayId}`
+            
+            if (socket.currentStayRoom === room) return
+            
+            if (socket.currentStayRoom) {
+                socket.leave(socket.currentStayRoom)
+                logger.info(`Socket leaving stay room ${socket.currentStayRoom} [id: ${socket.id}]`)
+            }
+            
+            socket.join(room)
+            socket.currentStayRoom = room
+            socket.stayUserName = userName
+            
+            logger.info(`Socket joined stay room ${room} [id: ${socket.id}] as ${userName}`)
+        })
+        
+        socket.on('stay-send-msg', ({ stayId, msg }) => {
+            const room = `stay:${stayId}`
+            logger.info(`New stay msg from socket [id: ${socket.id}], emitting to room ${room}`)
+            gIo.to(room).emit('stay-add-msg', msg)
+        })
+        
+        socket.on('stay-typing', ({ stayId, userName, isTyping }) => {
+            const room = `stay:${stayId}`
+            logger.info(`Typing indicator: ${userName} ${isTyping ? 'is' : 'stopped'} typing in ${room}`)
+            socket.to(room).emit('stay-user-typing', { userName, isTyping })
+        })
+        
+        socket.on('stay-msg-read', ({ stayId, msgId, userId }) => {
+            const room = `stay:${stayId}`
+            logger.info(`Message ${msgId} marked as read by ${userId} in ${room}`)
+            gIo.to(room).emit('stay-msg-read-status', { msgId, userId })
+        })
+        
+        // USER MANAGEMENT
         socket.on('user-watch', userId => {
             logger.info(`user-watch from socket [id: ${socket.id}], on user ${userId}`)
             socket.join('watching:' + userId)
         })
+        
         socket.on('set-user-socket', userId => {
             logger.info(`Setting socket.userId = ${userId} for socket [id: ${socket.id}]`)
             socket.userId = userId
         })
+        
         socket.on('unset-user-socket', () => {
             logger.info(`Removing socket.userId for socket [id: ${socket.id}]`)
             delete socket.userId
         })
+        
+        //  ORDER MANAGEMENT 
         socket.on('order-status-changed', orderData => {
             logger.info(`Order status changed [id: ${orderData._id}], notifying guest`)
             gIo.emit('update-guest-orders', orderData)

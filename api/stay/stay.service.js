@@ -14,7 +14,10 @@ export const stayService = {
     add,
     update,
     addStayReview,
-    removeStayReview
+    removeStayReview,
+    addStayMsg,
+    removeStayMsg,
+    getStayMsgs
 }
 
 // Helper function to get suggested stay range - returns Date objects like frontend util
@@ -85,7 +88,8 @@ async function query(filterBy = { txt: '', minPrice: 0 }) {
                 likedByUsers: stay.likedByUsers || [],
                 freeCancellation: Math.random() > 0.5,
                 rating: stay.host?.rating ? +stay.host.rating : null,
-                suggestedRange: _getSuggestedStayRange(stay)
+                suggestedRange: _getSuggestedStayRange(stay),
+                unreadMsgCount: _getUnreadMsgCount(stay) // For inbox
             }
         })
 
@@ -147,7 +151,7 @@ async function update(stay) {
         const criteria = { _id: ObjectId.createFromHexString(stay._id) }
 
         const toSet = {}
-        const allowedKeys = ['name', 'summary', 'price', 'capacity', 'guests', 'bedrooms', 'beds', 'bathrooms', 'roomType', 'imgUrls', 'loc', 'amenities', 'type', 'availableFrom', 'availableUntil', 'host', 'reviews', 'likedByUsers']
+        const allowedKeys = ['name', 'summary', 'price', 'capacity', 'guests', 'bedrooms', 'beds', 'bathrooms', 'roomType', 'imgUrls', 'loc', 'amenities', 'type', 'availableFrom', 'availableUntil', 'host', 'reviews', 'likedByUsers', 'msgs']
 
         for (const key of allowedKeys) {
             if (stay[key] !== undefined) {
@@ -212,6 +216,83 @@ async function removeStayReview(stayId, reviewId) {
         logger.error(`cannot remove stay review ${reviewId}`, err)
         throw err
     }
+}
+
+// MESSAGE FUNCTIONS 
+
+async function addStayMsg(stayId, txt, loggedinUser) {
+    try {
+        const msg = {
+            id: makeId(),
+            from: {
+                _id: loggedinUser._id,
+                fullname: loggedinUser.fullname,
+                imgUrl: loggedinUser.imgUrl || loggedinUser.pictureUrl || 'https://cdn.pixabay.com/photo/2020/07/01/12/58/icon-5359553_1280.png'
+            },
+            txt,
+            timestamp: new Date().toISOString(),
+            isRead: false
+        }
+
+        const criteria = { _id: ObjectId.createFromHexString(stayId) }
+        const collection = await dbService.getCollection('stay')
+        
+        await collection.updateOne(
+            criteria,
+            { $push: { msgs: msg } }
+        )
+
+        return msg
+    } catch (err) {
+        logger.error(`cannot add stay message ${stayId}`, err)
+        throw err
+    }
+}
+
+async function removeStayMsg(stayId, msgId, loggedinUser) {
+    try {
+        const { _id: userId, isAdmin } = loggedinUser
+
+        const criteria = { _id: ObjectId.createFromHexString(stayId) }
+        
+        // Only allow deletion if user is admin or message sender
+        if (!isAdmin) {
+            criteria['msgs.from._id'] = userId
+        }
+
+        const collection = await dbService.getCollection('stay')
+        const result = await collection.updateOne(
+            criteria,
+            { $pull: { msgs: { id: msgId } } }
+        )
+
+        if (result.modifiedCount === 0) throw 'Message not found or not authorized'
+        return msgId
+    } catch (err) {
+        logger.error(`cannot remove stay message ${msgId}`, err)
+        throw err
+    }
+}
+
+async function getStayMsgs(stayId) {
+    try {
+        const stay = await getById(stayId)
+        return stay.msgs || []
+    } catch (err) {
+        logger.error(`cannot get stay messages ${stayId}`, err)
+        throw err
+    }
+}
+
+function _getUnreadMsgCount(stay) {
+    if (!stay.msgs) return 0
+    const { loggedinUser } = asyncLocalStorage.getStore() || {}
+    if (!loggedinUser) return 0
+    
+    // Count unread messages that are NOT from the current user
+    return stay.msgs.filter(msg => 
+        !msg.isRead && msg.from._id !== loggedinUser._id
+    ).length
 }
 
 function _buildCriteria(filterBy) {

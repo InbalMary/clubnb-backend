@@ -96,7 +96,8 @@ export async function addStay(req, res) {
                 imgUrl: body.host?.imgUrl || loggedinUser?.imgUrl || null
             },
             reviews: [],
-            likedByUsers: []
+            likedByUsers: [],
+            msgs: []
         }
 
         const addedStay = await stayService.add(stay)
@@ -181,5 +182,57 @@ export async function removeStayReview(req, res) {
     } catch (err) {
         logger.error('Failed to remove stay review', err)
         res.status(400).send({ err: 'Failed to remove stay review' })
+    }
+}
+
+// MESSAGE ROUTES 
+
+export async function addStayMsg(req, res) {
+    const store = asyncLocalStorage.getStore()
+    const loggedinUser = store?.loggedinUser || req.loggedinUser
+
+    try {
+        const stayId = req.params.id
+        const { txt } = req.body
+
+        if (!loggedinUser) {
+            return res.status(401).send({ err: 'Not logged in' })
+        }
+
+        const msg = await stayService.addStayMsg(stayId, txt, loggedinUser)
+        res.status(201).json(msg)
+    } catch (err) {
+        logger.error('Failed to add stay message', err)
+        res.status(400).send({ err: 'Failed to add stay message' })
+    }
+}
+
+export async function removeStayMsg(req, res) {
+    const store = asyncLocalStorage.getStore()
+    const loggedinUser = store?.loggedinUser || req.loggedinUser
+
+    try {
+        const { id: stayId, msgId } = req.params
+
+        if (!loggedinUser) {
+            return res.status(401).send({ err: 'Not logged in' })
+        }
+
+        const removedId = await stayService.removeStayMsg(stayId, msgId, loggedinUser)
+        res.send(removedId)
+    } catch (err) {
+        logger.error('Failed to remove stay message', err)
+        res.status(400).send({ err: 'Failed to remove stay message' })
+    }
+}
+
+export async function getStayMsgs(req, res) {
+    try {
+        const stayId = req.params.id
+        const msgs = await stayService.getStayMsgs(stayId)
+        res.json(msgs)
+    } catch (err) {
+        logger.error('Failed to get stay messages', err)
+        res.status(400).send({ err: 'Failed to get stay messages' })
     }
 }
