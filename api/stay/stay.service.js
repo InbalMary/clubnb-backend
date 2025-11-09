@@ -222,12 +222,16 @@ async function removeStayReview(stayId, reviewId) {
 
 async function addStayMsg(stayId, txt, loggedinUser) {
     try {
+        const userCollection = await dbService.getCollection('user')
+        const fullUser = await userCollection.findOne({ 
+            _id: ObjectId.createFromHexString(loggedinUser._id) 
+        })                
         const msg = {
             id: makeId(),
             from: {
-                _id: loggedinUser._id,
-                fullname: loggedinUser.fullname,
-                imgUrl: loggedinUser.imgUrl || loggedinUser.pictureUrl || 'https://cdn.pixabay.com/photo/2020/07/01/12/58/icon-5359553_1280.png'
+                _id: fullUser._id.toString(),
+                fullname: fullUser.fullname,
+                imgUrl: fullUser.imgUrl || fullUser.pictureUrl || 'https://cdn.pixabay.com/photo/2020/07/01/12/58/icon-5359553_1280.png'
             },
             txt,
             timestamp: new Date().toISOString(),
