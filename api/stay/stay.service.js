@@ -17,7 +17,8 @@ export const stayService = {
     removeStayReview,
     addStayMsg,
     removeStayMsg,
-    getStayMsgs
+    getStayMsgs,
+    getUserConversations
 }
 
 // Helper function to get suggested stay range - returns Date objects like frontend util
@@ -65,7 +66,7 @@ async function query(filterBy = { txt: '', minPrice: 0 }) {
         // Map stays like in local service
         const mappedStays = stays.map(stay => {
             const stayCapacity = stay.capacity || stay.guests || 0
-            
+
             return {
                 _id: stay._id,
                 name: stay.name,
@@ -73,7 +74,7 @@ async function query(filterBy = { txt: '', minPrice: 0 }) {
                 imgUrls: stay.imgUrls,
                 price: stay.price,
                 summary: stay.summary,
-                capacity: stayCapacity, 
+                capacity: stayCapacity,
                 guests: stayCapacity,
                 bathrooms: stay.bathrooms,
                 bedrooms: stay.bedrooms,
@@ -220,12 +221,13 @@ async function removeStayReview(stayId, reviewId) {
 
 // MESSAGE FUNCTIONS 
 
-async function addStayMsg(stayId, txt, loggedinUser) {
+async function addStayMsg(stayId, txt, toUserId, loggedinUser) {
     try {
         const userCollection = await dbService.getCollection('user')
-        const fullUser = await userCollection.findOne({ 
-            _id: ObjectId.createFromHexString(loggedinUser._id) 
-        })                
+        const fullUser = await userCollection.findOne({
+            _id: ObjectId.createFromHexString(loggedinUser._id)
+        })
+
         const msg = {
             id: makeId(),
             from: {
@@ -233,19 +235,20 @@ async function addStayMsg(stayId, txt, loggedinUser) {
                 fullname: fullUser.fullname,
                 imgUrl: fullUser.imgUrl || fullUser.pictureUrl || 'https://cdn.pixabay.com/photo/2020/07/01/12/58/icon-5359553_1280.png'
             },
-            txt,
+            txt: typeof txt === 'string' ? txt : txt?.txt || '',
             timestamp: new Date().toISOString(),
             isRead: false
+        }
+        if (toUserId) {
+            msg.to = { _id: toUserId }
         }
 
         const criteria = { _id: ObjectId.createFromHexString(stayId) }
         const collection = await dbService.getCollection('stay')
-        
-        await collection.updateOne(
-            criteria,
-            { $push: { msgs: msg } }
-        )
 
+        await collection.updateOne(criteria, { $push: { msgs: msg } })
+
+        logger.info(`Message added to stay ${stayId}`, msg)
         return msg
     } catch (err) {
         logger.error(`cannot add stay message ${stayId}`, err)
@@ -258,7 +261,7 @@ async function removeStayMsg(stayId, msgId, loggedinUser) {
         const { _id: userId, isAdmin } = loggedinUser
 
         const criteria = { _id: ObjectId.createFromHexString(stayId) }
-        
+
         // Only allow deletion if user is admin or message sender
         if (!isAdmin) {
             criteria['msgs.from._id'] = userId
@@ -292,9 +295,9 @@ function _getUnreadMsgCount(stay) {
     if (!stay.msgs) return 0
     const { loggedinUser } = asyncLocalStorage.getStore() || {}
     if (!loggedinUser) return 0
-    
+
     // Count unread messages that are NOT from the current user
-    return stay.msgs.filter(msg => 
+    return stay.msgs.filter(msg =>
         !msg.isRead && msg.from._id !== loggedinUser._id
     ).length
 }
@@ -334,7 +337,7 @@ function _buildCriteria(filterBy) {
                 { guests: { $gte: +filterBy.guests } }
             ]
         }
-        
+
         // If we already have $or conditions (from txt search), use $and
         if (orConditions.length > 0) {
             criteria.$and = [
@@ -356,4 +359,61 @@ function _buildCriteria(filterBy) {
 function _buildSort(filterBy) {
     if (!filterBy.sortField) return {}
     return { [filterBy.sortField]: filterBy.sortDir }
+}
+
+async function getUserConversations(userId) {
+    try {
+        const collection = await dbService.getCollection('stay')
+
+        const stays = await collection.find({
+            'msgs': { $elemMatch: { $or: [{ 'from._id': userId }, { 'to._id': userId }] } } // ✅ רק הודעות הרלוונטיות למשתמש
+        }).toArray()
+
+        const conversations = []
+
+        for (const stay of stays) {
+            if (!stay.msgs || stay.msgs.length === 0) continue
+
+            const userMsgs = stay.msgs.filter(msg => msg.from._id === userId || msg.to?._id === userId)
+            const partnersMap = {}
+
+            userMsgs.forEach(msg => {
+                const partnerId = msg.from._id === userId ? msg.to._id : msg.from._id
+                if (!partnersMap[partnerId]) partnersMap[partnerId] = []
+                partnersMap[partnerId].push(msg)
+            })
+
+            for (const [partnerId, msgs] of Object.entries(partnersMap)) {
+                const sortedMsgs = msgs.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
+                const lastMsg = sortedMsgs[sortedMsgs.length - 1]
+                const partnerMsg = sortedMsgs.find(m => m.from._id === partnerId)
+                const partnerInfo = partnerMsg?.from || stay.host
+
+                const unreadCount = sortedMsgs.filter(msg => msg.from._id === partnerId && !msg.isRead).length
+
+                conversations.push({
+                    stayId: stay._id.toString(),
+                    stayName: stay.name,
+                    stayImgUrl: stay.imgUrls?.[0] || '',
+                    partnerId,
+                    partnerName: partnerInfo.fullname || partnerInfo.firstName || 'Unknown',
+                    partnerImgUrl: partnerInfo.imgUrl || partnerInfo.pictureUrl || '',
+                    lastMessage: {
+                        txt: lastMsg.txt,
+                        timestamp: lastMsg.timestamp,
+                        fromMe: lastMsg.from._id === userId
+                    },
+                    unreadCount,
+                    totalMessages: sortedMsgs.length
+                })
+            }
+        }
+
+        conversations.sort((a, b) => new Date(b.lastMessage.timestamp) - new Date(a.lastMessage.timestamp))
+
+        return conversations
+    } catch (err) {
+        logger.error(`cannot get user conversations for ${userId}`, err)
+        throw err
+    }
 }

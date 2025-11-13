@@ -112,7 +112,7 @@ export async function updateStay(req, res) {
     const store = asyncLocalStorage.getStore()
     const loggedinUser = store?.loggedinUser || req.loggedinUser
     const { body } = req
-    
+
     const userId = loggedinUser?._id
     const isAdmin = loggedinUser?.isAdmin
 
@@ -193,13 +193,17 @@ export async function addStayMsg(req, res) {
 
     try {
         const stayId = req.params.id
-        const { txt } = req.body
+        const { txt, toUserId } = req.body 
 
         if (!loggedinUser) {
             return res.status(401).send({ err: 'Not logged in' })
         }
 
-        const msg = await stayService.addStayMsg(stayId, txt, loggedinUser)
+        if (!txt || !txt.trim()) {
+            return res.status(400).send({ err: 'Message text is required' })
+        }
+
+        const msg = await stayService.addStayMsg(stayId, txt, toUserId, loggedinUser)
         res.status(201).json(msg)
     } catch (err) {
         logger.error('Failed to add stay message', err)
@@ -234,5 +238,24 @@ export async function getStayMsgs(req, res) {
     } catch (err) {
         logger.error('Failed to get stay messages', err)
         res.status(400).send({ err: 'Failed to get stay messages' })
+    }
+}
+
+export async function getUserConversations(req, res) {
+    const store = asyncLocalStorage.getStore()
+    const loggedinUser = store?.loggedinUser || req.loggedinUser
+
+    try {
+        if (!loggedinUser) {
+            return res.status(401).send({ err: 'Not logged in' })
+        }
+
+        const userId = loggedinUser._id
+        const conversations = await stayService.getUserConversations(userId)
+
+        res.json(conversations)
+    } catch (err) {
+        logger.error('Failed to get user conversations', err)
+        res.status(400).send({ err: 'Failed to get user conversations' })
     }
 }

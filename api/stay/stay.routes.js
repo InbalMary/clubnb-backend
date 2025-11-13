@@ -10,10 +10,14 @@ import {
     removeStayReview,
     addStayMsg,
     removeStayMsg,
-    getStayMsgs
+    getStayMsgs,
+    getUserConversations  
 } from './stay.controller.js'
 
 const router = express.Router()
+
+// Conversations route
+router.get('/user/conversations', log, getUserConversations)
 
 // Public routes
 router.get('/', log, getStays)
