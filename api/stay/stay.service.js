@@ -366,7 +366,7 @@ async function getUserConversations(userId) {
         const collection = await dbService.getCollection('stay')
 
         const stays = await collection.find({
-            'msgs': { $elemMatch: { $or: [{ 'from._id': userId }, { 'to._id': userId }] } } // ✅ רק הודעות הרלוונטיות למשתמש
+            'msgs': { $elemMatch: { $or: [{ 'from._id': userId }, { 'to._id': userId }] } }
         }).toArray()
 
         const conversations = []
